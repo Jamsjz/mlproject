@@ -1,0 +1,98 @@
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
+import time
+import logging
+
+from app.api.health_route import router as health_route
+from app.api.routes import router as api_router
+from app.core.config import settings
+from app.core.schema import create_success_response
+from app.core.database import connect_to_mongo, close_mongo_connection
+from contextlib import asynccontextmanager
+
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await connect_to_mongo()
+    yield
+    await close_mongo_connection()
+
+def setup_logging():
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper()),
+        format=settings.log_format
+    )
+
+def setup_middlewares(app: FastAPI):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    if settings.is_production:
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=settings.allowed_hosts
+        )
+    
+    @app.middleware("http")
+    async def _(request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        
+        process_time = time.time() - start_time
+        response.headers["X-Process-Time"] = f"{process_time:.4f}"
+        
+        logger.info(f"{request.method} {request.url.path} - {response.status_code} ({process_time:.4f}s)")
+        return response
+    
+    @app.middleware("http")
+    async def _(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.update({
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "X-XSS-Protection": "1; mode=block"
+        })
+        return response
+    
+def index_route(app) -> FastAPI:
+    """Define the index route for the FastAPI application"""
+    @app.get("/", tags=["welcome"])
+    def _():
+        return create_success_response(
+            message="Welcome to the FastAPI application!",
+            data={
+                "version": settings.version,
+                "environment": settings.environment,
+            }
+        )
+
+    return app
+
+def create_application() -> FastAPI:
+    """Create and configure FastAPI application"""
+    setup_logging()
+    
+    app = FastAPI(
+        title=settings.app_name,
+        description="FastAPI UV Backend",
+        version=settings.version,
+        lifespan=lifespan
+    )
+
+    setup_middlewares(app)
+    index_route(app)
+
+    app.include_router(health_route, tags=["health"])
+    app.include_router(api_router, tags=["api"], prefix="/api")
+
+    logger.info("FastAPI application configured successfully")
+
+    return app

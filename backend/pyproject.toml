@@ -1,0 +1,25 @@
+[project]
+name = "mlproject"
+version = "0.0.1"
+description = "Reporting system."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "bcrypt>=5.0.0",
+  "fastapi[standard]>=0.117.1",
+  "motor>=3.7.1",
+  "pydantic-settings>=2.11.0",
+  "pydantic[email]>=2.11.9",
+  "pyjwt>=2.13.0",
+  "pyotp>=2.9.0",
+  "python-dotenv>=1.1.1",
+  "uvicorn>=0.37.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28.1",
+  "pytest>=8.4.2",
+  "pytest-asyncio>=1.2.0",
+  "ruff>=0.13.2",
+]
