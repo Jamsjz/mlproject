@@ -37,3 +37,17 @@ Initializes the MongoDB connection using the `motor` driver. The database URI is
 
 ## State Management
 The step-by-step registration is stateful on the backend, tracked via an `InProgressRegistration` document in MongoDB. The frontend receives a `registration_id` to link subsequent requests to the ongoing registration session.
+
+## Testing Architecture
+The authentication system relies heavily on dependency injection via FastAPI's `Depends`. During testing, the `get_auth_service` dependency is overridden to supply an `AuthService` initialized with mock implementations of the `IUserRepository`, `IRegistrationRepository`, and `IOtpService` protocols.
+
+### Mock Implementations (`tests/mocks.py`)
+- Mocks use in-memory dictionaries to simulate database interactions.
+- Ensures tests run blazingly fast without requiring a running MongoDB or SQLite instance.
+- Safely tests the exact business logic and routing constraints.
+
+### Executing Tests
+To execute the tests, ensure `pytest` is run from the `backend/` directory with `PYTHONPATH` set to the current directory:
+```bash
+PYTHONPATH=. uv run pytest tests/
+```
