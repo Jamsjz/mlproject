@@ -1,16 +1,22 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Alert, StatusBar,
+  StyleSheet, Alert, StatusBar, ActivityIndicator
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/use-theme-colors";
+import { useRouter, useFocusEffect } from "expo-router";
+import { removeToken } from "@/services/authService";
+import { getMyProfile, getMyReports } from "@/services/apiService";
 
-const MY_REPORTS = [
-  { id: "1", title: "Pothole on Main Street", status: "In Review", date: "Jun 12", icon: "alert-circle-outline", iconColor: "#007AFF", iconBg: "#E6F1FB" },
-  { id: "2", title: "Street Light Not Working", status: "Resolved", date: "Jun 11", icon: "bulb-outline", iconColor: "#3B6D11", iconBg: "#EAF3DE" },
-  { id: "3", title: "Garbage Cleanup Needed", status: "In Progress", date: "Jun 9", icon: "trash-outline", iconColor: "#854F0B", iconBg: "#FAEEDA" },
+const CATEGORIES = [
+  { id: "road", label: "Road", icon: "car-outline" },
+  { id: "lighting", label: "Lighting", icon: "bulb-outline" },
+  { id: "waste", label: "Waste", icon: "trash-outline" },
+  { id: "water", label: "Water", icon: "water-outline" },
+  { id: "park", label: "Park", icon: "leaf-outline" },
+  { id: "other", label: "Other", icon: "ellipsis-horizontal-circle-outline" },
 ];
 
 const getStatusStyle = (status: string) => {
@@ -23,7 +29,50 @@ const getStatusStyle = (status: string) => {
 
 export default function AccountScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { isDark, background: backgroundColor, text: textColor, secondaryText: secondaryTextColor, border: borderColor, surface: surfaceColor } = useThemeColors();
+
+  const [profile, setProfile] = useState<any>(null);
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      const fetchData = async () => {
+        setLoading(true);
+        try {
+          const prof = await getMyProfile();
+          setProfile(prof);
+          
+          const rep = await getMyReports();
+          setReports(rep.map((r: any) => ({
+            id: r._id,
+            title: r.description,
+            status: r.status,
+            date: new Date(r.created_at).toLocaleDateString(),
+            icon: CATEGORIES.find(c => c.id === r.category)?.icon || 'alert-circle-outline',
+            iconColor: "#007AFF",
+            iconBg: "#E6F1FB"
+          })));
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchData();
+    }, [])
+  );
+
+  const handleLogout = async () => {
+    await removeToken();
+    router.replace("/login");
+  };
+
+  const getInitials = (name: string) => {
+    if (!name) return "";
+    return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+  };
 
   const settingsItems = [
     { icon: "notifications-outline", label: "Notifications" },
@@ -43,12 +92,12 @@ export default function AccountScreen() {
         {/* Profile card */}
         <View style={[styles.profileCard, { backgroundColor: surfaceColor }]}>
           <View style={[styles.avatar, { backgroundColor: isDark ? "#333" : "#e0e0e0" }]}>
-            <Text style={[styles.avatarText, { color: textColor }]}>JD</Text>
+            {loading ? <ActivityIndicator /> : <Text style={[styles.avatarText, { color: textColor }]}>{getInitials(profile?.name)}</Text>}
           </View>
           <View style={styles.profileInfo}>
-            <Text style={[styles.profileName, { color: textColor }]}>John Doe</Text>
-            <Text style={[styles.profileEmail, { color: secondaryTextColor }]}>john@example.com</Text>
-            <Text style={[styles.profilePhone, { color: secondaryTextColor }]}>+977 9812345678</Text>
+            <Text style={[styles.profileName, { color: textColor }]}>{profile?.name || ""}</Text>
+            <Text style={[styles.profileEmail, { color: secondaryTextColor }]}>{profile?.email || ""}</Text>
+            <Text style={[styles.profilePhone, { color: secondaryTextColor }]}>{profile?.phone_number || ""}</Text>
           </View>
           <TouchableOpacity style={[styles.editBtn, { borderColor }]}>
             <Ionicons name="pencil-outline" size={16} color={textColor} />
@@ -59,29 +108,35 @@ export default function AccountScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: textColor }]}>My Reports</Text>
           <View style={[styles.reportsCard, { backgroundColor: surfaceColor }]}>
-            {MY_REPORTS.map((item, index) => {
-              const statusStyle = getStatusStyle(item.status);
-              return (
-                <View
-                  key={item.id}
-                  style={[
-                    styles.reportRow,
-                    index < MY_REPORTS.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: borderColor },
-                  ]}
-                >
-                  <View style={[styles.reportIcon, { backgroundColor: item.iconBg }]}>
-                    <Ionicons name={item.icon as any} size={17} color={item.iconColor} />
+            {loading ? (
+              <ActivityIndicator style={{ padding: 20 }} />
+            ) : reports.length === 0 ? (
+              <Text style={{ color: secondaryTextColor, padding: 20 }}>No reports submitted yet.</Text>
+            ) : (
+              reports.map((item, index) => {
+                const statusStyle = getStatusStyle(item.status);
+                return (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.reportRow,
+                      index < reports.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: borderColor },
+                    ]}
+                  >
+                    <View style={[styles.reportIcon, { backgroundColor: item.iconBg }]}>
+                      <Ionicons name={item.icon as any} size={17} color={item.iconColor} />
+                    </View>
+                    <View style={styles.reportContent}>
+                      <Text style={[styles.reportTitle, { color: textColor }]} numberOfLines={1}>{item.title}</Text>
+                      <Text style={[styles.reportDate, { color: secondaryTextColor }]}>{item.date}</Text>
+                    </View>
+                    <View style={[styles.statusPill, { backgroundColor: statusStyle.backgroundColor }]}>
+                      <Text style={[styles.statusPillText, { color: statusStyle.color }]}>{item.status}</Text>
+                    </View>
                   </View>
-                  <View style={styles.reportContent}>
-                    <Text style={[styles.reportTitle, { color: textColor }]} numberOfLines={1}>{item.title}</Text>
-                    <Text style={[styles.reportDate, { color: secondaryTextColor }]}>{item.date}</Text>
-                  </View>
-                  <View style={[styles.statusPill, { backgroundColor: statusStyle.backgroundColor }]}>
-                    <Text style={[styles.statusPillText, { color: statusStyle.color }]}>{item.status}</Text>
-                  </View>
-                </View>
-              );
-            })}
+                );
+              })
+            )}
           </View>
         </View>
 
@@ -112,7 +167,7 @@ export default function AccountScreen() {
             style={[styles.logoutBtn, { borderColor: "#E24B4A" }]}
             onPress={() => Alert.alert("Log out", "Are you sure you want to log out?", [
               { text: "Cancel", style: "cancel" },
-              { text: "Log out", style: "destructive", onPress: () => console.log("Logged out") },
+              { text: "Log out", style: "destructive", onPress: handleLogout },
             ])}
             activeOpacity={0.8}
           >
