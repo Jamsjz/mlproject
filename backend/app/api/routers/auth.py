@@ -67,6 +67,7 @@ class Verify2FALoginRequest(BaseModel):
 @registration_router.post("/basic-info")
 async def register_basic_info(req: BasicInfoRequest, auth_service: AuthService = Depends(get_auth_service)):
     # Citizenship string validation
+    print("hello")
     if not req.citizenship_number.strip():
         raise HTTPException(status_code=400, detail="Citizenship number is required")
         

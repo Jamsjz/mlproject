@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   Alert, StyleSheet, Image, ActivityIndicator,
@@ -8,6 +8,20 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/use-theme-colors";
+import { createReport } from "@/services/apiService";
+import { useRouter } from "expo-router";
+
+// Dynamically import MapView and Location so it doesn't break on web
+let MapView: any = null;
+let Marker: any = null;
+let Location: any = null;
+
+if (Platform.OS !== 'web') {
+  const maps = require('react-native-maps');
+  MapView = maps.default;
+  Marker = maps.Marker;
+  Location = require('expo-location');
+}
 
 const CATEGORIES = [
   { id: "road", label: "Road", icon: "car-outline" },
@@ -20,23 +34,43 @@ const CATEGORIES = [
 
 export default function ReportScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: "", email: "", location: "", description: "", phone: "" });
+  const [description, setDescription] = useState("");
+  const [locationName, setLocationName] = useState("");
+  const [coords, setCoords] = useState<{ latitude: number, longitude: number } | null>(null);
 
   const { isDark, background: backgroundColor, text: textColor, secondaryText: secondaryTextColor, border: borderColor, surface: surfaceColor, placeholder: placeholderColor } = useThemeColors();
 
+  useEffect(() => {
+    if (showForm && Platform.OS !== "web") {
+      (async () => {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          try {
+            let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            setCoords({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+          } catch (error) {
+            console.warn("Location unavailable, falling back to default:", error);
+            // Fallback to Kathmandu coordinates if emulator location is completely disabled
+            setCoords({ latitude: 27.7172, longitude: 85.3240 });
+          }
+        }
+      })();
+    }
+  }, [showForm]);
+
   const handleCameraPress = async () => {
-    // On web/laptop, camera is not supported — show gallery instead
     if (Platform.OS === "web") {
-      Alert.alert("Not supported", "Camera is not available on web. Please use 'Choose from gallery' instead.");
+      Alert.alert("Not supported", "Camera is not available on web.");
       return;
     }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Denied", "Camera permission is required to take pictures.");
+      Alert.alert("Permission Denied", "Camera permission is required.");
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [4, 3], quality: 0.8 });
@@ -59,24 +93,29 @@ export default function ReportScreen() {
     }
   };
 
-  const handleInputChange = (field: keyof typeof formData, value: string) =>
-    setFormData((prev) => ({ ...prev, [field]: value }));
-
   const handleSubmit = async () => {
-    if (!formData.name.trim()) return Alert.alert("Required", "Please enter your name");
-    if (!formData.email.trim()) return Alert.alert("Required", "Please enter your email");
-    if (!formData.location.trim()) return Alert.alert("Required", "Please enter a location");
     if (!selectedCategory) return Alert.alert("Required", "Please select a category");
-    if (!formData.description.trim()) return Alert.alert("Required", "Please describe the issue");
-    if (!formData.phone.trim()) return Alert.alert("Required", "Please enter your phone number");
+    if (!locationName.trim()) return Alert.alert("Required", "Please enter a location name");
+    if (!description.trim()) return Alert.alert("Required", "Please describe the issue");
 
     setLoading(true);
     try {
-      // TODO: POST to backend API
-      console.log("Submitting:", { ...formData, category: selectedCategory, image: capturedImage });
-      Alert.alert("Submitted!", "Your report has been received.", [{ text: "OK", onPress: handleReset }]);
-    } catch {
-      Alert.alert("Error", "Failed to submit. Please try again.");
+      await createReport({
+        category: selectedCategory,
+        description: description,
+        location: locationName,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
+      });
+      Alert.alert("Submitted!", "Your report has been received.", [{ 
+        text: "OK", 
+        onPress: () => {
+          handleReset();
+          router.replace("/(tabs)");
+        } 
+      }]);
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to submit. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -86,7 +125,9 @@ export default function ReportScreen() {
     setCapturedImage(null);
     setShowForm(false);
     setSelectedCategory(null);
-    setFormData({ name: "", email: "", location: "", description: "", phone: "" });
+    setDescription("");
+    setLocationName("");
+    setCoords(null);
   };
 
   return (
@@ -151,28 +192,37 @@ export default function ReportScreen() {
               </ScrollView>
             </View>
 
-            {[
-              { key: "name", label: "Name", placeholder: "Your full name", capitalize: "words" as const },
-              { key: "email", label: "Email", placeholder: "you@example.com", keyboard: "email-address" as const, capitalize: "none" as const },
-              { key: "location", label: "Location", placeholder: "e.g. Bagbazar, Kathmandu" },
-              { key: "phone", label: "Phone", placeholder: "+977 98XXXXXXXX", keyboard: "phone-pad" as const },
-            ].map((field) => {
-              const key = field.key as keyof typeof formData;
-              return (
-                <View key={key} style={styles.field}>
-                  <Text style={[styles.label, { color: textColor }]}>{field.label} *</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: surfaceColor, color: textColor, borderColor }]}
-                    placeholder={field.placeholder}
-                    placeholderTextColor={placeholderColor}
-                    keyboardType={field.keyboard}
-                    autoCapitalize={field.capitalize ?? "sentences"}
-                    value={formData[key]}
-                    onChangeText={(t) => handleInputChange(key, t)}
-                  />
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: textColor }]}>Location Name *</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: surfaceColor, color: textColor, borderColor }]}
+                placeholder="e.g. Bagbazar, Kathmandu"
+                placeholderTextColor={placeholderColor}
+                value={locationName}
+                onChangeText={setLocationName}
+              />
+            </View>
+
+            {MapView && coords && (
+              <View style={styles.field}>
+                <Text style={[styles.label, { color: textColor }]}>Map Location</Text>
+                <View style={{ height: 150, borderRadius: 10, overflow: 'hidden' }}>
+                  <MapView
+                    style={{ flex: 1 }}
+                    initialRegion={{
+                      latitude: coords.latitude,
+                      longitude: coords.longitude,
+                      latitudeDelta: 0.005,
+                      longitudeDelta: 0.005,
+                    }}
+                    onPress={(e: any) => setCoords(e.nativeEvent.coordinate)}
+                  >
+                    <Marker coordinate={coords} />
+                  </MapView>
                 </View>
-              );
-            })}
+                <Text style={{ fontSize: 10, color: secondaryTextColor }}>Tap on the map to adjust location.</Text>
+              </View>
+            )}
 
             <View style={styles.field}>
               <Text style={[styles.label, { color: textColor }]}>Description *</Text>
@@ -182,8 +232,8 @@ export default function ReportScreen() {
                 placeholderTextColor={placeholderColor}
                 multiline
                 numberOfLines={4}
-                value={formData.description}
-                onChangeText={(t) => handleInputChange("description", t)}
+                value={description}
+                onChangeText={setDescription}
               />
             </View>
           </View>

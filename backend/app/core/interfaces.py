@@ -1,5 +1,7 @@
 from typing import Protocol, Optional, Dict, Any
 from app.models.user import UserInDB, RegistrationSession, TwoFactorMethod
+from app.models.report import ReportInDB
+from typing import List
 
 class IUserRepository(Protocol):
     async def get_user_by_email(self, email: str) -> Optional[UserInDB]:
@@ -47,3 +49,13 @@ class IOtpService(Protocol):
 class IAuthService(Protocol):
     # Add methods as needed for auth logic
     ...
+
+class IReportRepository(Protocol):
+    async def create_report(self, report: ReportInDB) -> ReportInDB:
+        ...
+        
+    async def get_reports_by_user(self, user_id: str) -> List[ReportInDB]:
+        ...
+        
+    async def get_recent_reports(self, limit: int = 10) -> List[ReportInDB]:
+        ...
